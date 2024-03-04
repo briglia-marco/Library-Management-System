@@ -1,0 +1,23 @@
+{
+    // Usare IntelliSense per informazioni sui possibili attributi.
+    // Al passaggio del mouse vengono visualizzate le descrizioni degli attributi esistenti.
+    // Per altre informazioni, visitare: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [{
+        "type": "lldb",
+        "name": "server",
+        "request": "launch",
+        "program": "${workspaceFolder}/bibserver",
+        "cwd": "${workspaceFolder}",
+        "args": ["Massa", "bibData/bib3.txt", "3"],
+    },
+    {
+        "type": "lldb",
+        "name": "client",
+        "request": "launch",
+        "program": "${workspaceFolder}/bibclient",
+        "cwd": "${workspaceFolder}",
+        "args": ["--autore=ciccio, -p"],
+    }
+]
+}

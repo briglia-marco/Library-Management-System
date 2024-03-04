@@ -13,7 +13,6 @@
 void initialize_queue(queue_t *queue){ // inizializza la coda
   queue->head = NULL;
   mypthread_mutex_init(&queue->mutex, NULL, __LINE__, __FILE__);
-  mypthread_mutex_init(&queue->cond, NULL, __LINE__, __FILE__);
 }
 
 void push(queue_t *queue, void *data){ // aggiunge un elemento in coda 

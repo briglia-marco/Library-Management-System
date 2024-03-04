@@ -8,26 +8,7 @@
 #include "libs/thread.h"
 
 #define CONFIG_FILE "bib.conf"
-#define MAX_SERVER_SOCKET 5
-
-/*
-7) Ricezione della risposta dal server: 
-Utilizzare la funzione recv per ricevere la risposta dal server.
-Il client dovrebbe essere in grado di gestire i vari tipi di messaggi di risposta 
-(MSG_RECORD, MSG_NO, MSG_ERROR).
-
-8) Elaborazione della risposta: 
-Analizzare la risposta ricevuta dal server e stampare i risultati su stdout.
-Se la risposta è un MSG_ERROR, stampare anche il messaggio di errore. 
-Se la risposta è un MSG_RECORD e l'opzione -p è stata specificata, -> 
-stampare solo i record per cui è stato accordato il prestito.
-
-9) Chiusura del socket: 
-Utilizzare la funzione close per chiudere il socket quando il cliente ha terminato
-*/
-
-//$ ./bibclient --author="ciccio" -p 
-//$ ./bibclient --author="ciccio" --title="pippo" 
+#define MAX_SERVER_SOCKET 5 
 
 int main(int argc, char *argv[]){
     //________Parsing degli argomenti della linea di comando________
@@ -83,6 +64,7 @@ int main(int argc, char *argv[]){
     char arr_server[MAX_SERVER_SOCKET]; 
     int arr_port[MAX_SERVER_SOCKET]; 
     int dim_arr = fill_arr_socket(fd, arr_port, arr_server);
+    myfclose(fd, __LINE__, __FILE__);
 
     // Creazione del socket
     // Poi interroga tutte le biblioteche connettendosi sulla socket e mandando una richiesta
@@ -97,7 +79,7 @@ int main(int argc, char *argv[]){
         socket_arr[i] = csfd;
         myconnect(csfd, (struct sockaddr *)&server_addr[i], sizeof(server_addr[i]), __LINE__, __FILE__);
         if(write(csfd, msg, sizeof(msg_client_t)) == -1){
-            perror("write");
+            perror("write client");
             exit(EXIT_FAILURE);
         }
     }
@@ -117,7 +99,6 @@ int main(int argc, char *argv[]){
     timeout.tv_sec = 1;
     timeout.tv_usec = 0;
 
-
     // Connessione al server
     while(1){
         rfdset = fdset;
@@ -126,56 +107,34 @@ int main(int argc, char *argv[]){
             exit(EXIT_FAILURE);
         }
         int finished = 1;
-        for (int i = 0; i < dim_arr; i++){
+        for(int i=0; i<dim_arr; i++){
             setsockopt(socket_arr[i], SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout));
-            if (FD_ISSET(socket_arr[i], &rfdset)){
+            int bytes_read = 0;
+            if(FD_ISSET(socket_arr[i], &rfdset)){
                 finished = 0;
-                printf("arr_server: %c\n", arr_server[i]);
-                while(1){
-                    msg_client_t *msg = (msg_client_t *)malloc(sizeof(msg_client_t));
-                    if(msg==NULL){
-                        perror("Errore allocazione memoria");
-                        exit(1);
-                    }
-                    printf("messaggio allocato\n");
-                    int byte_read = 0;
-                    if((byte_read = read(socket_arr[i], msg, sizeof(msg_client_t))) == -1){
-                        perror("niente da leggere");
-                        break;
-                    }
-                    if(byte_read == 0){
-                        printf("byte_read: %d\n", byte_read);
-                        break;
-                    }
-                    printf("byte_read: %d\n", byte_read);
+                msg_client_t *msg = (msg_client_t *)malloc(sizeof(msg_client_t));
+                while((bytes_read = read(socket_arr[i], msg, sizeof(msg_client_t))) > 0){
                     if(msg->type == MSG_RECORD){
                         printf("%s\n", msg->data);
                     }
-                    if(msg->type == MSG_ERROR){
-                        fprintf(stderr, "Errore: %s\n", msg->data);
-                        break;
+                    else if(msg->type == MSG_NO){
+                        printf("Nessun risultato trovato\n");
                     }
-                    if(msg->type == MSG_NO){
-                        printf("Nessun risultato\n");
-                        break;
+                    else if(msg->type == MSG_ERROR){
+                        printf("Errore: %s\n", msg->data);
                     }
-                    safe_free(msg);
-                    printf("messaggio ricevuto liberato\n\n");
                 }
-                //safe_free(msg);
-                //myclose(socket_arr[i], __LINE__, __FILE__);
+                    free(msg);
             }
         }
-        if(finished){
+        if(finished == 1)
             break;
-        }   
     }
 
-    //myclose(csfd, __LINE__, __FILE__); // chiudo il socket
-    //myfclose(fd, __LINE__, __FILE__);
+    // Chiudo i socket
 
-
-    
+    // Libero la memoria
+    free_list(lista_arg);
 
 return 0;
 }

@@ -69,7 +69,6 @@ typedef struct{
 typedef struct{
     node_t *head;
     pthread_mutex_t mutex;
-    pthread_mutex_t cond;
 } queue_t;
 
 typedef struct{

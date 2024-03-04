@@ -8,53 +8,47 @@
 #include "libs/thread.h"
 #define TEMPO_LIMITE_PRESTITO 30
 
+// Functions prototypes
+
 int static running = 1;
 void *signal_handler_function(void *arg);
 void *worker_function(void *arg);
 int verifica_libro_richiesto(Libro_t *libro, Libro_t *libro_richiesto);
 char *libro_to_record(Libro_t *libro, char *libro_record, char type);
 
-/*
-3) Gestione delle connessioni: 
-Scrivi una funzione che viene eseguita in un nuovo thread per gestire una connessione. 
-Questa funzione dovrebbe leggere i dati dalla connessione, interpretare i dati come un comando, 
-eseguire il comando sulla biblioteca e inviare una risposta al client.
-
-4) Implementazione dei comandi: 
-Implementa i comandi che il server dovrebbe essere in grado di gestire. 
-Questi potrebbero includere comandi per ottenere informazioni su un libro, 
-prenotare un libro, restituire un libro, ecc.
-*/
+// Start main
 
 int main(int argc, char *argv[]){
-    // creazione gestione segnali
+
+    // _________Signal Management_________
     sigset_t set;
     mysigemptyset(&set, __LINE__, __FILE__);
     mysigaddset(&set, SIGINT, __LINE__, __FILE__);
     mysigaddset(&set, SIGTERM, __LINE__, __FILE__);
-    // creo un thread per gestire i segnali
+    // detached signal handler thread
     pthread_t signal_handler;
     mypthread_sigmask(SIG_BLOCK, &set, NULL, __LINE__, __FILE__);
     mypthread_create(&signal_handler, NULL, signal_handler_function, (void *)&set, __LINE__, __FILE__);
     mypthread_detach(signal_handler, __LINE__, __FILE__);
-    // _________Parsing del file di record_________
+
+    // _________Parsing file record_________
     if(argc!=4){
         fprintf(stderr, "Usage: %s name_bib file_record W\n", argv[0]);
         exit(1);
     }
-    char *name_bib = argv[1]; 
-    char *file_record = argv[2]; 
-    int W = atoi(argv[3]); // numero di worker threads
+    char *name_bib = argv[1];
+    char *file_record = argv[2];
+    int W = atoi(argv[3]);
 
-    FILE *fd = myfopen(file_record, "r", __LINE__, __FILE__); // apre il file di record in lettura
-    linked_list_t *biblioteca = (linked_list_t *)malloc(sizeof(linked_list_t)); // crea la biblioteca
+    FILE *fd = myfopen(file_record, "r", __LINE__, __FILE__);
+    linked_list_t *biblioteca = (linked_list_t *)malloc(sizeof(linked_list_t));
     if(biblioteca==NULL){ 
         perror("Errore allocazione memoria");
         exit(1);
     }
     initialize_list(biblioteca); 
 
-    // crea un file di log
+    // LOG FILE
     char *log_name = strdup(name_bib);
     log_name = strcat(log_name, ".log");
     FILE *log = myfopen(log_name, "w", __LINE__, __FILE__);
@@ -63,90 +57,82 @@ int main(int argc, char *argv[]){
     size_t len = 0;
     ssize_t nread;
 
-    // leggi il file di record riga per riga e crea una struttura dati del libro per ogni record 
+    // Reading file record line by line and creating a linked list of books 
     while((nread = getline(&line, &len, fd)) != -1){
         if(nread == 1){
             continue;
         }
-        // crea una struttura dati del libro
-        Libro_t *libro = (Libro_t *)malloc(sizeof(Libro_t));
+        Libro_t *libro = (Libro_t *)malloc(sizeof(Libro_t)); 
         if(libro==NULL){
             perror("Errore allocazione memoria");
             exit(1);
         }
-        inizializza_libro(libro); 
-        riempi_scheda_libro(libro, line); // riempi la struttura dati del libro con i dati del record
+        inizializza_libro(libro);
+        riempi_scheda_libro(libro, line); // fill the book record with the data from the file
 
-        if(is_in_biblioteca(biblioteca, libro)){
-            safe_free(libro);
+        if(is_in_biblioteca(biblioteca, libro)){ // check if the book is already in the library comparing all the fields of the book
+            safe_free(libro); // if true, free the memory
         }
         else{
-            add_node(biblioteca, libro);
+            add_node(biblioteca, libro); // if false, add the book to the library
         }
         
     }
     myclose(fileno(fd), __LINE__, __FILE__);
-    //print_biblioteca(biblioteca);
+    safe_free(line);
 
-    /*
-    Crea un server socket che ascolta su una specifica porta. 
-    Quando il server riceve una connessione, dovrebbe creare un nuovo thread per gestire la connessione.
-    Il server registra un file di log (./name_bib.log) in cui per ogni richiesta effettuata da un client si
-    registrano il numero dei record inviati, dei prestiti effettuati e le informazioni relative a ciascun record.
-    */
+    // _________SOCKET MANAGEMENT_________
 
-    // creazione coda condivisa
+    // Shared queue for the worker threads
     queue_t *coda = (queue_t *)malloc(sizeof(queue_t));
     if(coda==NULL){
         perror("Errore allocazione memoria");
         exit(1);
     }
-    initialize_queue(coda);
+    initialize_queue(coda); 
 
-    // crea una socket
-    int sfd, client;
+    // Socket creation and binding
+    int sfd, client; 
     struct sockaddr_in server;
     server.sin_family = AF_INET;
     server.sin_port = htons(PORT);
     server.sin_addr.s_addr = inet_addr(IP);
-
-    // creazione socket
     sfd = mysocket(AF_INET, SOCK_STREAM, 0, __LINE__, __FILE__);
     mybind(sfd, (struct sockaddr *)&server, sizeof(server), __LINE__, __FILE__);
-    // recupero porta
+    // get the port number assigned to the socket by the system
     socklen_t leng = sizeof(server);
     if (getsockname(sfd, (struct sockaddr *)&server, &leng) == -1) {
         perror("getsockname");
         exit(1);
     }
 
-    // creazione file config
-    int err;
+    // _________CONFIG FILE_________
+
+    // Create a file bib.conf to store the server name and the port number
     FILE *config = myfopen("bib.conf", "a", __LINE__, __FILE__);
-    myflock(fileno(config), LOCK_EX, __LINE__, __FILE__);
-    err = fprintf(config, "SERVER: %s, SOCKET: %d\n", name_bib, server.sin_port);
+    //myflock(fileno(config), LOCK_EX, __LINE__, __FILE__);
+    int err = fprintf(config, "SERVER: %s, SOCKET: %d\n", name_bib, server.sin_port);
     if(err<0){
         perror("Errore scrittura file");
         exit(1);
     }
-    myflock(fileno(config), LOCK_UN, __LINE__, __FILE__);
+    //myflock(fileno(config), LOCK_UN, __LINE__, __FILE__);
     fflush(config);
-    myclose(fileno(config), __LINE__, __FILE__);
+    myfclose(config, __LINE__, __FILE__);
 
     mylisten(sfd, SOMAXCONN, __LINE__, __FILE__);
 
-    // inizializzazione mutex
     pthread_mutex_t mutex;
     mypthread_mutex_init(&mutex, NULL, __LINE__, __FILE__);
 
-    // gestione delle connessioni dei client con select
+    // Select for managing the clients 
     fd_set fdset, rfdset; // fdset è l'insieme dei file descriptors da monitorare, rfdset è l'insieme dei file descriptors pronti
-    int maxfd = sfd; // massimo file descriptor 
-    FD_ZERO(&fdset); // inizializza l'insieme dei file descriptors
-    FD_ZERO(&rfdset); // inizializza l'insieme dei file descriptors
-    FD_SET(sfd, &fdset); // aggiungi la socket all'insieme dei file descriptors
+    int maxfd = sfd; 
+    FD_ZERO(&fdset); 
+    FD_ZERO(&rfdset); 
+    FD_SET(sfd, &fdset); 
 
-    // inizializzazione thread worker
+    // thread worker parameters
     param_worker_t *args = (param_worker_t *)malloc(sizeof(param_worker_t));
     if(args==NULL){
         perror("Errore allocazione memoria");
@@ -163,31 +149,30 @@ int main(int argc, char *argv[]){
         mypthread_create(&worker[i], NULL, worker_function, (void *)args, __LINE__, __FILE__);
     }
 
-    // timeout per la select
+    // timeout select
     struct timeval timeout;
     timeout.tv_sec = 1; 
     timeout.tv_usec = 0;
 
-    // ciclo principale dove il server accetta le connessioni con select e le inserisce nella coda condivisa 
-    // da cui i thread worker le prelevano e le processano 
+    //_________MAIN LOOP_________
+
+    // main loop where the server accepts the clients and adds them to the queue used by the worker threads 
     while(running){
-        rfdset = fdset; // copia l'insieme dei file descriptors da monitorare
+        rfdset = fdset; 
         if(select(maxfd+1, &rfdset, NULL, NULL, &timeout) == -1){ // monitora i file descriptors
             perror("select");
             exit(EXIT_FAILURE);
         }
         for(int i=0; i<=maxfd; i++){
-            if(FD_ISSET(i, &rfdset)){ // controlla se il file descriptor è pronto per la lettura
-                if(i==sfd){ // se è la socket del server
-                    client = myaccept(sfd, NULL, NULL, __LINE__, __FILE__); // accetta la connessione
-                    printf("Connessione accettata %d\n", client);
-                    FD_SET(client, &fdset); // aggiungi il client all'insieme dei file descriptors
-                    printf("cliente aggiunto %d\n", client);
-                    if(client > maxfd){ // aggiorna il massimo file descriptor
+            if(FD_ISSET(i, &rfdset)){ 
+                if(i==sfd){ //if the file descriptor is the server socket
+                    client = myaccept(sfd, NULL, NULL, __LINE__, __FILE__); 
+                    FD_SET(client, &fdset); 
+                    if(client > maxfd){ 
                         maxfd = client;
                     }
                 }
-                else{ // se è un client
+                else{ // if the file descriptor is a client socket
                     mypthread_mutex_lock(&mutex, __LINE__, __FILE__);
                     int *fdclient = calloc(1, sizeof(int));
                     if(fdclient==NULL){
@@ -195,23 +180,20 @@ int main(int argc, char *argv[]){
                         exit(EXIT_FAILURE);
                     }
                     *fdclient = i;
-                    push(coda, fdclient); // aggiungi il client alla coda condivisa
-                    FD_CLR(i, &fdset); // rimuovi il client dall'insieme dei file descriptors
-                    printf("client aggiunto alla coda %d\n", i);
+                    push(coda, fdclient); 
+                    FD_CLR(i, &fdset); 
                     mypthread_mutex_unlock(&mutex, __LINE__, __FILE__);
                 }
             }
         }
     }
 
-    // join dei thread worker
-    for(int i=0; i<W; i++){
-        mypthread_join(worker[i], NULL, __LINE__, __FILE__);
-    }
+    // _________UPDATE FILE BIB_________
 
-    printf("Server terminato\n");
-    // aggiornamento file bib
-    config = myfopen("bib_prova.txt", "w", __LINE__, __FILE__);
+    mkdir("new_bib_data", 0700);
+    char filename[256];
+    sprintf(filename, "new_bib_data/bib%c_new.txt", name_bib[0]);
+    FILE *new_bib = myfopen(filename, "w", __LINE__, __FILE__);
     for(int i = 0; i < biblioteca->size; i++){
         Libro_t *libro = (Libro_t *)get_nth_element(biblioteca, i);
         char *record = calloc(1, sizeof(char)*BUFF_SIZE);
@@ -219,20 +201,38 @@ int main(int argc, char *argv[]){
             perror("Errore allocazione memoria");
             exit(EXIT_FAILURE);
         }
-        libro_to_record(libro, record, MSG_QUERY); //fix perchè no stampa i record a causa di MSG_QUERY
-        fprintf(config, "%s\n", record);
+        libro_to_record(libro, record, MSG_QUERY);
+        fprintf(new_bib, "%s\n", record);
         safe_free(record);
     }
-    fflush(config);
-    myfclose(config, __LINE__, __FILE__);
-    printf("Aggiornamento file bib completato\n");
+    fflush(new_bib);
+    myfclose(new_bib, __LINE__, __FILE__);
 
-    // fine programma e chiusura di tutto
-    //mypthread_mutex_destroy(&mutex, __LINE__, __FILE__);
-    //myclose(sfd, __LINE__, __FILE__);
-    
-    // chiusura file di log
-    //myfclose(log, __LINE__, __FILE__);
+    // join of thread worker
+    for(int i=0; i<W; i++){
+        mypthread_join(worker[i], NULL, __LINE__, __FILE__);
+    }
+
+
+
+    // _________FREE MEMORY_________
+
+    // free the memory allocated for the linked list
+    free_list(biblioteca);
+    safe_free(biblioteca);
+    // free the memory allocated for the queue
+    free_queue(coda);
+    safe_free(coda);
+    // free the memory allocated for the worker parameters
+    safe_free(args);
+    // free the memory allocated for the log file
+    myfclose(log, __LINE__, __FILE__);
+    // free the memory allocated for the mutex
+    mypthread_mutex_destroy(&mutex, __LINE__, __FILE__);
+    // close the socket
+    myclose(sfd, __LINE__, __FILE__);
+
+    // _________END_________
 
 return 0;
 }
@@ -287,7 +287,7 @@ void* worker_function(void *arg){
             continue;
         }
         client = *p;
-        printf("client prelevato %d\n", client);
+        //printf("client prelevato %d\n", client);
         free(p);
         FD_SET(client, args->clients);
         mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
@@ -306,9 +306,9 @@ void* worker_function(void *arg){
                 perror("read");
                 exit(EXIT_FAILURE);
             }
-            printf("Messaggio ricevuto: %c\n", msg->type);
-            printf("Lunghezza messaggio: %d\n", msg->length);
-            printf("Dati: %s\n", msg->data);
+            //printf("Messaggio ricevuto: %c\n", msg->type);
+            //printf("Lunghezza messaggio: %d\n", msg->length);
+            //printf("Dati: %s\n", msg->data);
 
             time_t now;
             time(&now);
@@ -328,16 +328,14 @@ void* worker_function(void *arg){
             for(int i=0; i<biblioteca->size; i++){
                 Libro_t *libro = (Libro_t *)get_nth_element(biblioteca, i);
                 if(verifica_libro_richiesto(libro, libro_richiesto)){ // verifico se tutti i campi del libro richiesto sono presenti nel libro
-                    printf("Libro trovato\n");
+                    //printf("Libro trovato\n");
                     num_record++;
                     char *libro_record = calloc(1, sizeof(char)*BUFF_SIZE);
                     if(libro_record==NULL){
                         perror("Errore allocazione memoria");
                         exit(EXIT_FAILURE);
                     }
-                    printf("pre libro_to_record\n");
                     libro_to_record(libro, libro_record, msg->type);
-                    printf("post libro_to_record\n");
                     // rimepio record_inviati con i record che verificano la richiesta
                     strcat(record_inviati, libro_record);
                     strcat(record_inviati, "\n");
@@ -348,10 +346,10 @@ void* worker_function(void *arg){
                     //invio messaggio al client
                     msg_to_client->type = MSG_RECORD;
                     msg_to_client->length = len_data;
-                    strcpy(msg_to_client->data, data);
-                    printf("Messaggio: %s\n", msg_to_client->data);
+                    strcat(msg_to_client->data, data);
+                    //printf("Messaggio: %s\n", msg_to_client->data);
                     if(write(client, msg_to_client, sizeof(msg_client_t)) == -1){
-                        perror("write");
+                        perror("write SERVER");
                         exit(EXIT_FAILURE);
                     }
                     if(strcmp(libro_record, "prestito non disponibile")==0){
@@ -396,7 +394,6 @@ void* worker_function(void *arg){
             FD_CLR(client, args->clients); // rimuovi il client dall'insieme dei file descriptors
         }
         memset(record_inviati, 0, sizeof(record_inviati));
-
     }
     return NULL;
 }
@@ -437,9 +434,6 @@ int verifica_libro_richiesto(Libro_t *libro, Libro_t *libro_richiesto){
         }
     }
     if(libro_richiesto->anno!=0){
-        if(libro->anno==0){
-            return 0;
-        }
         if(libro->anno!=libro_richiesto->anno){
             return 0;
         }

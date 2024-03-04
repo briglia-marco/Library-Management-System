@@ -10,22 +10,22 @@ HEADER := $(wildcard $(LIBS)/*.h)
 all: bibserver
 
 bibserver: bibserver.o $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) -o $@ $^ -lpthread
 
 bibserver.o: bibserver.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 bibclient: bibclient.o $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) -o $@ $^ -lpthread
 	
 bibclient.o: bibclient.c
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@ 
 
 $(LIBS)/%.o: $(LIBS)/%.c $(HEADER)
 	@$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(LIBS)/*.o bibserver bibclient $(OBJ) *.log
+	rm -f -r $(LIBS)/*.o *.o bibserver bibclient $(OBJ) *.log bib.conf new_bib_data
 
 run : bibserver
 	./bibserver Massa bibData/bib1.txt 3
@@ -42,7 +42,7 @@ run2 : bibclient
 run3 : bibclient
 	./bibclient --autore="ciccio"
 
-test: bibserver bibclient
+test : bibserver bibclient
 	./bibserver Massa bibData/bib1.txt 3 &
 	./bibserver Pisa bibData/bib2.txt 3 &
 	./bibserver Siena bibData/bib3.txt 3 &
@@ -60,5 +60,9 @@ test: bibserver bibclient
 	./bibclient --autore="aho" -p &
 	./bibclient --autore="stevens" --titolo="unix" -p &
 	./bibclient --autore="kernighan" --titolo="manuale" --anno="2010" &
+	sleep 1
+	./bibclient --autore="simenon" -p &
+	./bibclient --autore="dick" -p &
 	sleep 3
 	pkill bibserver
+	pkill bibclient

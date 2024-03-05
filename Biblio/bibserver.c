@@ -10,11 +10,12 @@
 
 // Functions prototypes
 
-int static running = 1;
+volatile int running = 1;
 void *signal_handler_function(void *arg);
 void *worker_function(void *arg);
 int verifica_libro_richiesto(Libro_t *libro, Libro_t *libro_richiesto);
 char *libro_to_record(Libro_t *libro, char *libro_record, char type);
+void record_new_file_record(char *name_bib, linked_list_t *biblioteca);
 
 // Start main
 
@@ -157,66 +158,67 @@ int main(int argc, char *argv[]){
     //_________MAIN LOOP_________
 
     // main loop where the server accepts the clients and adds them to the queue used by the worker threads 
-    while(running){
-        rfdset = fdset; 
-        if(select(maxfd+1, &rfdset, NULL, NULL, &timeout) == -1){ // monitora i file descriptors
-            perror("select");
-            exit(EXIT_FAILURE);
-        }
-        for(int i=0; i<=maxfd; i++){
-            if(FD_ISSET(i, &rfdset)){ 
-                if(i==sfd){ //if the file descriptor is the server socket
-                    client = myaccept(sfd, NULL, NULL, __LINE__, __FILE__); 
-                    FD_SET(client, &fdset); 
-                    if(client > maxfd){ 
-                        maxfd = client;
-                    }
+    // Dopo aver inizializzato l'insieme dei file descriptor fdset...
+while(running) {
+    rfdset = fdset;
+    if(select(maxfd+1, &rfdset, NULL, NULL, &timeout) == -1) {
+        perror("select");
+        exit(EXIT_FAILURE);
+    }
+    for(int i = 0; i <= maxfd; i++) {
+        if(FD_ISSET(i, &rfdset)) {
+            if(i == sfd) { // Nuova connessione in arrivo
+                client = myaccept(sfd, NULL, NULL, __LINE__, __FILE__);
+                FD_SET(client, &fdset);
+                if(client > maxfd) {
+                    maxfd = client;
                 }
-                else{ // if the file descriptor is a client socket
-                    mypthread_mutex_lock(&mutex, __LINE__, __FILE__);
-                    int *fdclient = calloc(1, sizeof(int));
-                    if(fdclient==NULL){
-                        perror("Errore allocazione memoria");
-                        exit(EXIT_FAILURE);
-                    }
-                    *fdclient = i;
-                    push(coda, fdclient); 
-                    FD_CLR(i, &fdset); 
-                    mypthread_mutex_unlock(&mutex, __LINE__, __FILE__);
+                // Aggiungi il file descriptor del client alla coda condivisa
+                mypthread_mutex_lock(&mutex, __LINE__, __FILE__);
+                int *fdclient = calloc(1, sizeof(int));
+                if(fdclient == NULL) {
+                    perror("Errore allocazione memoria");
+                    exit(EXIT_FAILURE);
                 }
+                *fdclient = client;
+                push(coda, fdclient);
+                mypthread_mutex_unlock(&mutex, __LINE__, __FILE__);
+            } 
+            else{ 
+                mypthread_mutex_lock(&mutex, __LINE__, __FILE__);
+                int *fdclient = calloc(1, sizeof(int));
+                if(fdclient == NULL) {
+                    perror("Errore allocazione memoria");
+                    exit(EXIT_FAILURE);
+                }
+                *fdclient = i;
+                push(coda, fdclient);
+                FD_CLR(*fdclient, &fdset);
+                mypthread_mutex_unlock(&mutex, __LINE__, __FILE__);
             }
         }
     }
+}
 
-    // _________UPDATE FILE BIB_________
 
-    mkdir("new_bib_data", 0700);
-    char filename[256];
-    sprintf(filename, "new_bib_data/bib%c_new.txt", name_bib[0]);
-    FILE *new_bib = myfopen(filename, "w", __LINE__, __FILE__);
-    for(int i = 0; i < biblioteca->size; i++){
-        Libro_t *libro = (Libro_t *)get_nth_element(biblioteca, i);
-        char *record = calloc(1, sizeof(char)*BUFF_SIZE);
-        if(record==NULL){
-            perror("Errore allocazione memoria");
-            exit(EXIT_FAILURE);
-        }
-        libro_to_record(libro, record, MSG_QUERY);
-        fprintf(new_bib, "%s\n", record);
-        safe_free(record);
-    }
-    fflush(new_bib);
-    myfclose(new_bib, __LINE__, __FILE__);
+    /*
+    Il server termina quando riceve un segnale di SIGINT o SIGTERM, in questo caso si attende la
+    terminazione dei thread worker, in modo che vengano elaborate le richieste pendenti, si termina la
+    scrittura del file di log, si registra il nuovo file_record (con le nuove date di prestito) e si elimina
+    la socket del server. Infine il server viene terminato.
+    */
 
-    // join of thread worker
+    // Completa le richieste pendenti
     for(int i=0; i<W; i++){
         mypthread_join(worker[i], NULL, __LINE__, __FILE__);
     }
 
-
+    // Registra il nuovo file_record
+    record_new_file_record(name_bib, biblioteca);
 
     // _________FREE MEMORY_________
 
+/*
     // free the memory allocated for the linked list
     free_list(biblioteca);
     safe_free(biblioteca);
@@ -227,11 +229,12 @@ int main(int argc, char *argv[]){
     safe_free(args);
     // free the memory allocated for the log file
     myfclose(log, __LINE__, __FILE__);
+    myfclose(new_bib, __LINE__, __FILE__);
     // free the memory allocated for the mutex
     mypthread_mutex_destroy(&mutex, __LINE__, __FILE__);
     // close the socket
     myclose(sfd, __LINE__, __FILE__);
-
+*/
     // _________END_________
 
 return 0;
@@ -250,14 +253,26 @@ void *signal_handler_function(void *arg){
     return NULL;
 }
 
-/*
-Il worker scandisce la struttura condivisa alla ricerca di uno o più record che
-verificano la richiesta effettuata ed eventualmente registrare il prestito. Le risposte alle richieste fatte
-verranno inviate al client sulla stessa socket di connessione.
-Le richieste del client possono essere di due soli tipi. Una query, in cui si chiedono i record che
-contengono una specifica stringa in uno o più campi e un loan (prestito) in cui si richiede anche il
-prestito di tutti i volumi relativi a record che verificano la query.
-*/
+void record_new_file_record(char *name_bib, linked_list_t *biblioteca){
+    // update the file bib.data with the new data
+    mkdir("new_bib_data", 0700);
+    char filename[256];
+    sprintf(filename, "new_bib_data/bib%c_new.txt", name_bib[0]);
+    FILE *new_bib = myfopen(filename, "w", __LINE__, __FILE__);
+    for(int i = 0; i < biblioteca->size; i++){
+        Libro_t *libro = (Libro_t *)get_nth_element(biblioteca, i);
+        char *record = calloc(1, sizeof(char)*BUFF_SIZE);
+        if(record==NULL){
+            perror("Errore allocazione memoria");
+            exit(EXIT_FAILURE);
+        }
+        libro_to_record(libro, record, MSG_QUERY);
+        fprintf(new_bib, "%s\n", record);
+        safe_free(record);
+    }
+    fflush(new_bib);
+    myfclose(new_bib, __LINE__, __FILE__);
+}
 
 void* worker_function(void *arg){
     param_worker_t *args = (param_worker_t *)arg; // passo i parametri al thread
@@ -275,13 +290,17 @@ void* worker_function(void *arg){
     printf("worker pronto\n");
     char record_inviati[BUFF_SIZE];
 
-    while(running){ 
+    while(1){ 
         mypthread_mutex_lock(&lock, __LINE__, __FILE__);
+        if(!running && is_empty(coda)){
+            mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
+            break;
+        } 
         if(is_empty(coda)){
             mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
             continue;
         }
-        int* p = pop(coda); // preleva un client dalla coda
+        int *p = pop(coda); // preleva un client dalla coda
         if(p==NULL){
             mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
             continue;
@@ -289,7 +308,6 @@ void* worker_function(void *arg){
         client = *p;
         //printf("client prelevato %d\n", client);
         free(p);
-        FD_SET(client, args->clients);
         mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
         if(client==-1){ // se la coda è vuota
             continue;

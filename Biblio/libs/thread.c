@@ -12,11 +12,11 @@
 
 void myperror(int en, char *msg){
   char buf[BUFFLEN];
-  int errmsg = strerror_r(en, buf, BUFFLEN);
+  char *errmsg = strerror_r(en, buf, BUFFLEN);
   if(msg!=NULL)
-    fprintf(stderr, "%s: %d\n", msg, errmsg);
+    fprintf(stderr, "%s: %s\n", msg, errmsg);
   else
-    fprintf(stderr, "%d\n", errmsg);
+    fprintf(stderr, "%s\n", errmsg);
 }
 
 int mypthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*tfun) (void *), void *arg, int linea, char *file){

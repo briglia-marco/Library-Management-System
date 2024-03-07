@@ -82,6 +82,6 @@ void check_richiesta(char *token, char *string, int var_controllo, linked_list_t
 int fill_arr_socket(int arr_socket[], char arr_server[]);
 void check_prestito(Libro_t *libro);
 char *data_to_string(char buffer[]);
-int calcola_data_sec(char *data);
+time_t calcola_data_sec(char *data);
 
 #endif // AUX_FUNCTION_H

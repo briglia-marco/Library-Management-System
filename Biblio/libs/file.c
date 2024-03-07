@@ -28,6 +28,7 @@ int myfclose(FILE *f, int linea, char *file){
   return e;
 }
 
+/*
 int myflock(int fd, int operation, int linea, char *file){
   int e = flock(fd, operation);
   if(e!=0){
@@ -37,6 +38,7 @@ int myflock(int fd, int operation, int linea, char *file){
   }
   return e;
 }
+*/
 
 void myclose(int fd, int linea, char *file){
   int e = close(fd);

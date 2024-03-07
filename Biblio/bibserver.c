@@ -35,6 +35,7 @@ void new_file_bib(linked_list_t *biblioteca, char *name_bib);
 // Start main
 
 int main(int argc, char *argv[]){
+    printf("SERVER PARTITO\n");
 
     // _________Signal Management_________
     sigset_t set;
@@ -76,28 +77,34 @@ int main(int argc, char *argv[]){
     ssize_t nread;
 
     FILE *fd = myfopen(file_record, "r", __LINE__, __FILE__);
-    myflock(fileno(fd), LOCK_EX, __LINE__, __FILE__);
+    //myflock(fileno(fd), LOCK_EX, __LINE__, __FILE__);
     // Reading file record line by line and creating a linked list of books 
     while((nread = getline(&line, &len, fd)) != -1){
         if(nread == 1){
             continue;
         }
-        Libro_t *libro = (Libro_t *)malloc(sizeof(Libro_t)); 
+
+        Libro_t *libro = (Libro_t *)malloc(sizeof(Libro_t));
         if(libro==NULL){
             perror("Errore allocazione memoria libro");
             exit(EXIT_FAILURE);
         }
         inizializza_libro(libro);
+        printf("RIEMPIMENTO SCHEDA LIBRO\n");
         riempi_scheda_libro(libro, line); // fill the book record with the data from the file
+        printf("LIBRO RIEMPITO\n");
         if(is_in_biblioteca(biblioteca, libro)){ // check if the book is already in the library comparing all the fields of the book
             safe_free(libro);
+            printf("LIBRO LIBERATO\n");
         }
         else{
             check_prestito(libro); // check if loan has expired
+            printf("PRESTITO CONTROLLATO\n");
             add_node(biblioteca, libro); 
+            printf("NODO AGGIUNTO\n");
         }
     }
-    myflock(fileno(fd), LOCK_UN, __LINE__, __FILE__);
+    //myflock(fileno(fd), LOCK_UN, __LINE__, __FILE__);
     myfclose(fd, __LINE__, __FILE__);
     safe_free(line);
 
@@ -131,14 +138,14 @@ int main(int argc, char *argv[]){
 
     // Create a file bib.conf to store the server name and the port number
     FILE *config = myfopen("bib.conf", "a", __LINE__, __FILE__);
-    myflock(fileno(config), LOCK_EX, __LINE__, __FILE__);
+    //myflock(fileno(config), LOCK_EX, __LINE__, __FILE__);
     int err = fprintf(config, "SERVER: %s, SOCKET: %d\n", name_bib, server.sin_port);
     if(err<0){
         perror("Errore scrittura file di configurazione");
         exit(EXIT_FAILURE);
     }
     fflush(config);
-    myflock(fileno(config), LOCK_UN, __LINE__, __FILE__);
+    //myflock(fileno(config), LOCK_UN, __LINE__, __FILE__);
     myfclose(config, __LINE__, __FILE__);
 
     // Select for managing the clients 
@@ -178,8 +185,6 @@ int main(int argc, char *argv[]){
 
     //_________MAIN LOOP_________
 
-    // main loop where the server accepts the clients and adds them to the queue used by the worker threads 
-    // Dopo aver inizializzato l'insieme dei file descriptor fdset...
     while(running) {
         mypthread_mutex_lock(&mutex, __LINE__, __FILE__);
         rfdset = fdset;
@@ -224,7 +229,6 @@ int main(int argc, char *argv[]){
     myfclose(log, __LINE__, __FILE__);
 
     // _________NEW FILE RECORD_________
-
     new_file_bib(biblioteca, name_bib);
 
     // _________FREE MEMORY_________
@@ -233,10 +237,8 @@ int main(int argc, char *argv[]){
     mypthread_mutex_destroy(&mutex, __LINE__, __FILE__);
     safe_free(args);
 
-
     // _________END_________
-
-return 0;
+    return 0;
 }
 
 // Functions
@@ -269,10 +271,8 @@ void* worker_function(void *arg){
     linked_list_t *biblioteca = args->biblioteca; 
     queue_t *coda = args->coda; 
     pthread_mutex_t lock = args->lock; 
-    FILE *log = args->log; 
-    //fd_set clients = args->clients; 
+    FILE *log = args->log;  
     int client; 
-    //printf("worker pronto\n");
 
     while(1){ 
         mypthread_mutex_lock(&lock, __LINE__, __FILE__);
@@ -292,7 +292,7 @@ void* worker_function(void *arg){
             continue;
         }
         client = *p;
-        //free(p);
+        free(p);
         mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
         if(client==-1){
             continue;
@@ -398,9 +398,6 @@ void* worker_function(void *arg){
         }
         fflush(log);
         mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
-        free_libro(libro_richiesto);
-        safe_free(msg_to_client);
-        safe_free(msg);
     }
     return NULL;
 }

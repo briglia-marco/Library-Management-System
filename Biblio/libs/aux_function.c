@@ -66,127 +66,94 @@ void free_biblioteca(linked_list_t *biblioteca){
 }
 
 void riempi_scheda_libro(Libro_t *libro, char *line){
-
   char *etichetta = strtok(line, ":");
   char *valore = strtok(NULL, ";");
-  remove_spaces(etichetta);
-  remove_spaces(valore);
 
-  while((etichetta != NULL) && (valore != NULL)){
-    
+  while (etichetta != NULL && valore != NULL){
+    remove_spaces(etichetta);
+    remove_spaces(valore);
+
     if(strcmp(etichetta, "autore") == 0){
-      if(libro->autore == NULL){
-        libro->autore = (char *)malloc(strlen(valore) + 1);
-        if(libro->autore == NULL){
+      if (libro->autore == NULL){
+        libro->autore = strdup(valore);
+        if (libro->autore == NULL) {
           perror("Errore allocazione memoria");
           exit(EXIT_FAILURE);
         }
-        remove_spaces(valore);
-        strcpy(libro->autore, valore);
-      }
+      } 
       else{
-        libro->autore = (char *)realloc(libro->autore, strlen(libro->autore) + strlen(valore) + 3);
-        if(libro->autore == NULL){
+        size_t new_size = strlen(libro->autore) + strlen(valore) + 11; // "; autore: "
+        char *temp = realloc(libro->autore, new_size);
+        if (temp == NULL) {
           perror("Errore riallocazione memoria");
           exit(EXIT_FAILURE);
         }
+        libro->autore = temp;
         strcat(libro->autore, "; autore: ");
-        remove_spaces(valore);
         strcat(libro->autore, valore);
       }
-    }
-    
-    if(strcmp(etichetta, "titolo") == 0){
-      libro->titolo = (char *)malloc(strlen(valore) + 1);
-      if(libro->titolo == NULL){
-        perror("Errore allocazione memoria");
-        exit(EXIT_FAILURE);
-      }
-      strcpy(libro->titolo, valore);
-    }
-    
-    if(strcmp(etichetta, "editore") == 0){
-      libro->editore = (char *)malloc(strlen(valore) + 1);
-      if(libro->editore == NULL){
-        perror("Errore allocazione memoria");
-        exit(EXIT_FAILURE);
-      }
-      strcpy(libro->editore, valore);
-    }
-    
-    if(strcmp(etichetta, "anno") == 0){
-      libro->anno = atoi(valore);
-    }
-    
-    if(strcmp(etichetta, "nota") == 0){
-      libro->nota = (char *)malloc(strlen(valore) + 1);
-      if(libro->nota == NULL){
-        perror("Errore allocazione memoria");
-        exit(EXIT_FAILURE);
-      }
-      strcpy(libro->nota, valore);
-    }
-    
-    if(strcmp(etichetta, "collocazione") == 0){
-      libro->collocazione = (char *)malloc(strlen(valore) + 1);
-      if(libro->collocazione == NULL){
-        perror("Errore allocazione memoria");
-        exit(EXIT_FAILURE);
-      }
-      strcpy(libro->collocazione, valore);
-    }
-    
-    if(strcmp(etichetta, "luogo_pubblicazione") == 0){
-      libro->luogo_pubblicazione = (char *)malloc(strlen(valore) + 1);
-      if(libro->luogo_pubblicazione == NULL){
-        perror("Errore allocazione memoria");
-        exit(EXIT_FAILURE);
-      }
-      strcpy(libro->luogo_pubblicazione, valore);
-    }
-    
-    if(strcmp(etichetta, "descrizione_fisica") == 0){
-      libro->descrizione_fisica = (char *)malloc(strlen(valore) + 1);
-      if(libro->descrizione_fisica == NULL){
-        perror("Errore allocazione memoria");
-        exit(EXIT_FAILURE);
-      }
-      strcpy(libro->descrizione_fisica, valore);
-    }
-    
-    if(strcmp(etichetta, "prestito") == 0){
-      libro->prestito = (char *)malloc(strlen(valore) + 1);
-      if(libro->prestito == NULL){
-        perror("Errore allocazione memoria");
-        exit(EXIT_FAILURE);
-      }
-      strcpy(libro->prestito, valore);
-    }
-    
-    if(strcmp(etichetta, "volume") == 0){
-      libro->volume = (char *)malloc(strlen(valore) + 1);
-      if(libro->volume == NULL){
-        perror("Errore allocazione memoria");
-        exit(EXIT_FAILURE);
-      }
-      strcpy(libro->volume, valore);
-    }
-    
-    if(strcmp(etichetta, "scaffale") == 0){
-      libro->scaffale = (char *)malloc(strlen(valore) + 1);
-      if(libro->scaffale == NULL){
-        perror("Errore allocazione memoria");
-        exit(EXIT_FAILURE);
-      }
-      strcpy(libro->scaffale, valore);
+    } else if (strcmp(etichetta, "titolo") == 0) {
+        libro->titolo = strdup(valore);
+        if (libro->titolo == NULL) {
+          perror("Errore allocazione memoria");
+          exit(EXIT_FAILURE);
+        }
+    } else if (strcmp(etichetta, "editore") == 0) {
+        libro->editore = strdup(valore);
+        if (libro->editore == NULL) {
+          perror("Errore allocazione memoria");
+          exit(EXIT_FAILURE);
+        }
+    } else if (strcmp(etichetta, "anno") == 0) {
+        libro->anno = atoi(valore);
+    } else if (strcmp(etichetta, "nota") == 0) {
+        libro->nota = strdup(valore);
+        if (libro->nota == NULL) {
+          perror("Errore allocazione memoria");
+          exit(EXIT_FAILURE);
+        }
+    } else if (strcmp(etichetta, "collocazione") == 0) {
+        libro->collocazione = strdup(valore);
+        if (libro->collocazione == NULL) {
+          perror("Errore allocazione memoria");
+          exit(EXIT_FAILURE);
+        }
+    } else if (strcmp(etichetta, "luogo_pubblicazione") == 0) {
+        libro->luogo_pubblicazione = strdup(valore);
+        if (libro->luogo_pubblicazione == NULL) {
+          perror("Errore allocazione memoria");
+          exit(EXIT_FAILURE);
+        }
+    } else if (strcmp(etichetta, "descrizione_fisica") == 0) {
+        libro->descrizione_fisica = strdup(valore);
+        if (libro->descrizione_fisica == NULL) {
+          perror("Errore allocazione memoria");
+          exit(EXIT_FAILURE);
+        }
+    } else if (strcmp(etichetta, "prestito") == 0) {
+        libro->prestito = strdup(valore);
+        if (libro->prestito == NULL) {
+          perror("Errore allocazione memoria");
+          exit(EXIT_FAILURE);
+        }
+    } else if (strcmp(etichetta, "volume") == 0) {
+        libro->volume = strdup(valore);
+        if (libro->volume == NULL) {
+          perror("Errore allocazione memoria");
+          exit(EXIT_FAILURE);
+        }
+    } else if (strcmp(etichetta, "scaffale") == 0) {
+        libro->scaffale = strdup(valore);
+        if (libro->scaffale == NULL) {
+          perror("Errore allocazione memoria");
+          exit(EXIT_FAILURE);
+        }
     }
 
     etichetta = strtok(NULL, ":");
     valore = strtok(NULL, ";");
-    remove_spaces(etichetta);
-    remove_spaces(valore);
   }
-  
+
 }
 
 void remove_spaces(char* str){
@@ -412,7 +379,7 @@ void add_richiesta(linked_list_t *lista_arg, char *token){
   valore = strtok(NULL, "$");
   to_upper_case(valore);
   richiesta->etichetta = (char *)malloc(strlen(etichetta) + 1);
-  richiesta->valore = (char *)malloc(strlen(valore) + 1);
+  richiesta->valore = calloc(strlen(valore) + 1, sizeof(char));
   strcpy(richiesta->etichetta, etichetta);
   strcpy(richiesta->valore, valore);
   add_node(lista_arg, richiesta);
@@ -449,7 +416,7 @@ int fill_arr_socket(int arr_socket[], char arr_server[]){
   return i;
 }
 
-int calcola_data_sec(char *data){
+time_t calcola_data_sec(char *data){
   struct tm tm;
   time_t t;
   strptime(data, "%Y-%m-%d %H:%M:%S", &tm);
@@ -467,7 +434,7 @@ char *data_to_string(char buffer[]){
 void check_prestito(Libro_t *libro){
   if(libro->prestito != NULL){
     time_t t = calcola_data_sec(libro->prestito);
-    int diff = difftime(time(NULL), t);
+    double diff = difftime(time(NULL), t);
     if(diff > TEMPO_LIMITE_PRESTITO){ // se il tempo di prestito è scaduto
       libro->prestito = NULL; // rimuovo la data di prestito
     }

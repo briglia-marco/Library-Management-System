@@ -13,7 +13,7 @@ FILE *myfopen(const char *path, const char *mode, int linea, char *file){
   if(f==NULL){
     perror("Errore apertura file");
     fprintf(stderr, "== %d == Linea: %d, File: %s\n", getpid(), linea, file);
-    exit(1);
+    exit(EXIT_FAILURE);
   }
   return f;
 }
@@ -23,7 +23,7 @@ int myfclose(FILE *f, int linea, char *file){
   if(e!=0){
     perror("Errore chiusura file");
     fprintf(stderr, "== %d == Linea: %d, File: %s\n", getpid(), linea, file);
-    exit(1);
+    exit(EXIT_FAILURE);
   }
   return e;
 }
@@ -33,7 +33,7 @@ int myflock(int fd, int operation, int linea, char *file){
   if(e!=0){
     perror("Errore lock file");
     fprintf(stderr, "== %d == Linea: %d, File: %s\n", getpid(), linea, file);
-    exit(1);
+    exit(EXIT_FAILURE);
   }
   return e;
 }
@@ -43,7 +43,7 @@ void myclose(int fd, int linea, char *file){
   if(e!=0){
     perror("Errore chiusura file descriptor");
     fprintf(stderr, "== %d == Linea: %d, File: %s\n", getpid(), linea, file);
-    exit(1);
+    exit(EXIT_FAILURE);
   }
   return;
 }

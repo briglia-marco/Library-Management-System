@@ -16,7 +16,7 @@ void initialize_queue(queue_t *queue){ // inizializza la coda
 }
 
 void push(queue_t *queue, void *data){ // aggiunge un elemento in coda 
-  node_t *new_node = (node_t *)malloc(sizeof(node_t));
+  node_queue_t *new_node = (node_queue_t *)malloc(sizeof(node_queue_t));
   if (new_node == NULL){
     perror("Errore allocazione memoria");
     exit(EXIT_FAILURE);
@@ -28,7 +28,7 @@ void push(queue_t *queue, void *data){ // aggiunge un elemento in coda
     queue->head = new_node;
   }
   else{
-    node_t *current = queue->head;
+    node_queue_t *current = queue->head;
     while (current->next != NULL){
       current = current->next;
     }
@@ -43,7 +43,7 @@ void *pop(queue_t *queue){ // rimuove un elemento dalla coda
     mypthread_mutex_unlock(&queue->mutex, __LINE__, __FILE__);
     return NULL;
   }
-  node_t *current = queue->head;
+  node_queue_t *current = queue->head;
   queue->head = current->next;
   void *data = current->data;
   // Non liberiamo il nodo corrente qui, ma restituiamo solo i dati.
@@ -54,9 +54,9 @@ void *pop(queue_t *queue){ // rimuove un elemento dalla coda
 
 void free_queue(queue_t *queue){ // libera la coda
   mypthread_mutex_lock(&queue->mutex, __LINE__, __FILE__);
-  node_t *current = queue->head;
+  node_queue_t *current = queue->head;
   while (current != NULL){
-    node_t *next = current->next;
+    node_queue_t *next = current->next;
     safe_free(current->data);
     safe_free(current);
     current = next;

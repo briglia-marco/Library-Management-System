@@ -8,14 +8,29 @@
 #include "libs/thread.h"
 #define TEMPO_LIMITE_PRESTITO 30
 
+// Structs
+
+typedef struct{
+    queue_t *coda;
+    linked_list_t *biblioteca;
+    pthread_mutex_t lock;
+    FILE *log;
+} param_worker_t;
+
+typedef struct{
+    char type;
+    unsigned int length;
+    char data[BUFF_SIZE];
+} msg_to_client_t;
+
 // Functions prototypes
 
 volatile int running = 1;
-void *signal_handler_function(void *arg);
 void *worker_function(void *arg);
+void *signal_handler_function(void *arg);
 int verifica_libro_richiesto(Libro_t *libro, Libro_t *libro_richiesto);
 char *libro_to_record(Libro_t *libro, char *libro_record, char type);
-void record_new_file_record(char *name_bib, linked_list_t *biblioteca);
+void new_file_bib(linked_list_t *biblioteca, char *name_bib);
 
 // Start main
 
@@ -32,6 +47,10 @@ int main(int argc, char *argv[]){
     mypthread_create(&signal_handler, NULL, signal_handler_function, (void *)&set, __LINE__, __FILE__);
     mypthread_detach(signal_handler, __LINE__, __FILE__);
 
+    pthread_mutex_t mutex;
+    mypthread_mutex_init(&mutex, NULL, __LINE__, __FILE__);
+
+
     // _________Parsing file record_________
     if(argc!=4){
         fprintf(stderr, "Usage: %s name_bib file_record W\n", argv[0]);
@@ -41,23 +60,23 @@ int main(int argc, char *argv[]){
     char *file_record = argv[2];
     int W = atoi(argv[3]);
 
-    FILE *fd = myfopen(file_record, "r", __LINE__, __FILE__);
     linked_list_t *biblioteca = (linked_list_t *)malloc(sizeof(linked_list_t));
     if(biblioteca==NULL){ 
-        perror("Errore allocazione memoria");
-        exit(1);
+        perror("Errore allocazione memoria biblioteca");
+        exit(EXIT_FAILURE);
     }
-    initialize_list(biblioteca); 
+    initialize_list(biblioteca);
 
-    // LOG FILE
-    char *log_name = strdup(name_bib);
-    log_name = strcat(log_name, ".log");
-    FILE *log = myfopen(log_name, "w", __LINE__, __FILE__);
-
-    char *line = NULL;
+    char *line = calloc(1, sizeof(char)*BUFF_SIZE);
+    if(line==NULL){
+        perror("Errore allocazione memoria line");
+        exit(EXIT_FAILURE);
+    }
     size_t len = 0;
     ssize_t nread;
 
+    FILE *fd = myfopen(file_record, "r", __LINE__, __FILE__);
+    myflock(fileno(fd), LOCK_EX, __LINE__, __FILE__);
     // Reading file record line by line and creating a linked list of books 
     while((nread = getline(&line, &len, fd)) != -1){
         if(nread == 1){
@@ -65,21 +84,21 @@ int main(int argc, char *argv[]){
         }
         Libro_t *libro = (Libro_t *)malloc(sizeof(Libro_t)); 
         if(libro==NULL){
-            perror("Errore allocazione memoria");
-            exit(1);
+            perror("Errore allocazione memoria libro");
+            exit(EXIT_FAILURE);
         }
         inizializza_libro(libro);
         riempi_scheda_libro(libro, line); // fill the book record with the data from the file
-
         if(is_in_biblioteca(biblioteca, libro)){ // check if the book is already in the library comparing all the fields of the book
-            safe_free(libro); // if true, free the memory
+            safe_free(libro);
         }
         else{
-            add_node(biblioteca, libro); // if false, add the book to the library
+            check_prestito(libro); // check if loan has expired
+            add_node(biblioteca, libro); 
         }
-        
     }
-    myclose(fileno(fd), __LINE__, __FILE__);
+    myflock(fileno(fd), LOCK_UN, __LINE__, __FILE__);
+    myfclose(fd, __LINE__, __FILE__);
     safe_free(line);
 
     // _________SOCKET MANAGEMENT_________
@@ -87,10 +106,10 @@ int main(int argc, char *argv[]){
     // Shared queue for the worker threads
     queue_t *coda = (queue_t *)malloc(sizeof(queue_t));
     if(coda==NULL){
-        perror("Errore allocazione memoria");
-        exit(1);
+        perror("Errore allocazione memoria coda");
+        exit(EXIT_FAILURE);
     }
-    initialize_queue(coda); 
+    initialize_queue(coda);
 
     // Socket creation and binding
     int sfd, client; 
@@ -104,45 +123,47 @@ int main(int argc, char *argv[]){
     socklen_t leng = sizeof(server);
     if (getsockname(sfd, (struct sockaddr *)&server, &leng) == -1) {
         perror("getsockname");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
+    mylisten(sfd, SOMAXCONN, __LINE__, __FILE__);
 
     // _________CONFIG FILE_________
 
     // Create a file bib.conf to store the server name and the port number
     FILE *config = myfopen("bib.conf", "a", __LINE__, __FILE__);
-    //myflock(fileno(config), LOCK_EX, __LINE__, __FILE__);
+    myflock(fileno(config), LOCK_EX, __LINE__, __FILE__);
     int err = fprintf(config, "SERVER: %s, SOCKET: %d\n", name_bib, server.sin_port);
     if(err<0){
-        perror("Errore scrittura file");
-        exit(1);
+        perror("Errore scrittura file di configurazione");
+        exit(EXIT_FAILURE);
     }
-    //myflock(fileno(config), LOCK_UN, __LINE__, __FILE__);
     fflush(config);
+    myflock(fileno(config), LOCK_UN, __LINE__, __FILE__);
     myfclose(config, __LINE__, __FILE__);
 
-    mylisten(sfd, SOMAXCONN, __LINE__, __FILE__);
-
-    pthread_mutex_t mutex;
-    mypthread_mutex_init(&mutex, NULL, __LINE__, __FILE__);
-
     // Select for managing the clients 
-    fd_set fdset, rfdset; // fdset è l'insieme dei file descriptors da monitorare, rfdset è l'insieme dei file descriptors pronti
+    fd_set fdset, rfdset; 
     int maxfd = sfd; 
     FD_ZERO(&fdset); 
     FD_ZERO(&rfdset); 
     FD_SET(sfd, &fdset); 
 
+    // ________LOG FILE_________
+
+    char *log_name = strdup(name_bib);
+    strcat(log_name, ".log");
+    FILE *log = myfopen(log_name, "w", __LINE__, __FILE__);
+    safe_free(log_name);
+
     // thread worker parameters
     param_worker_t *args = (param_worker_t *)malloc(sizeof(param_worker_t));
     if(args==NULL){
-        perror("Errore allocazione memoria");
-        exit(1);
+        perror("Errore allocazione memoria parametri worker");
+        exit(EXIT_FAILURE);
     }
     args->biblioteca = biblioteca; 
     args->coda = coda; 
     args->lock = mutex; 
-    args->clients = &fdset;
     args->log = log;
 
     pthread_t worker[W];
@@ -159,87 +180,230 @@ int main(int argc, char *argv[]){
 
     // main loop where the server accepts the clients and adds them to the queue used by the worker threads 
     // Dopo aver inizializzato l'insieme dei file descriptor fdset...
-while(running) {
-    rfdset = fdset;
-    if(select(maxfd+1, &rfdset, NULL, NULL, &timeout) == -1) {
-        perror("select");
-        exit(EXIT_FAILURE);
-    }
-    for(int i = 0; i <= maxfd; i++) {
-        if(FD_ISSET(i, &rfdset)) {
-            if(i == sfd) { // Nuova connessione in arrivo
-                client = myaccept(sfd, NULL, NULL, __LINE__, __FILE__);
-                FD_SET(client, &fdset);
-                if(client > maxfd) {
-                    maxfd = client;
+    while(running) {
+        mypthread_mutex_lock(&mutex, __LINE__, __FILE__);
+        rfdset = fdset;
+        mypthread_mutex_unlock(&mutex, __LINE__, __FILE__);
+        if(select(maxfd+1, &rfdset, NULL, NULL, &timeout) == -1) {
+            perror("select");
+            exit(EXIT_FAILURE);
+        }
+        for(int i = 0; i <= maxfd; i++) {
+            if(FD_ISSET(i, &rfdset)) {
+                if(i == sfd) { // if the server socket is ready to read, accept the client
+                    client = myaccept(sfd, NULL, NULL, __LINE__, __FILE__);
+                    mypthread_mutex_lock(&mutex, __LINE__, __FILE__);
+                    FD_SET(client, &fdset);
+                    if(client > maxfd) {
+                        maxfd = client;
+                    }
+                    mypthread_mutex_unlock(&mutex, __LINE__, __FILE__);
+                } 
+                else{ // if the client socket is ready to read, add the client to the queue
+                    mypthread_mutex_lock(&mutex, __LINE__, __FILE__);
+                    int *fdclient = calloc(1, sizeof(int));
+                    if(fdclient == NULL) {
+                        perror("Errore allocazione memoria fdclient");
+                        exit(EXIT_FAILURE);
+                    }
+                    *fdclient = i;
+                    push(coda, (void *)fdclient);
+                    FD_CLR(i, &fdset);
+                    mypthread_mutex_unlock(&mutex, __LINE__, __FILE__);
                 }
-                // Aggiungi il file descriptor del client alla coda condivisa
-                mypthread_mutex_lock(&mutex, __LINE__, __FILE__);
-                int *fdclient = calloc(1, sizeof(int));
-                if(fdclient == NULL) {
-                    perror("Errore allocazione memoria");
-                    exit(EXIT_FAILURE);
-                }
-                *fdclient = client;
-                push(coda, fdclient);
-                mypthread_mutex_unlock(&mutex, __LINE__, __FILE__);
-            } 
-            else{ 
-                mypthread_mutex_lock(&mutex, __LINE__, __FILE__);
-                int *fdclient = calloc(1, sizeof(int));
-                if(fdclient == NULL) {
-                    perror("Errore allocazione memoria");
-                    exit(EXIT_FAILURE);
-                }
-                *fdclient = i;
-                push(coda, fdclient);
-                FD_CLR(*fdclient, &fdset);
-                mypthread_mutex_unlock(&mutex, __LINE__, __FILE__);
             }
         }
     }
-}
 
-
-    /*
-    Il server termina quando riceve un segnale di SIGINT o SIGTERM, in questo caso si attende la
-    terminazione dei thread worker, in modo che vengano elaborate le richieste pendenti, si termina la
-    scrittura del file di log, si registra il nuovo file_record (con le nuove date di prestito) e si elimina
-    la socket del server. Infine il server viene terminato.
-    */
-
-    // Completa le richieste pendenti
+    // _________WAIT FOR THREADS_________
     for(int i=0; i<W; i++){
         mypthread_join(worker[i], NULL, __LINE__, __FILE__);
     }
 
-    // Registra il nuovo file_record
-    record_new_file_record(name_bib, biblioteca);
+    // _________LOG FILE_________
+    myfclose(log, __LINE__, __FILE__);
+
+    // _________NEW FILE RECORD_________
+
+    new_file_bib(biblioteca, name_bib);
 
     // _________FREE MEMORY_________
-
-/*
-    // free the memory allocated for the linked list
-    free_list(biblioteca);
-    safe_free(biblioteca);
-    // free the memory allocated for the queue
     free_queue(coda);
-    safe_free(coda);
-    // free the memory allocated for the worker parameters
-    safe_free(args);
-    // free the memory allocated for the log file
-    myfclose(log, __LINE__, __FILE__);
-    myfclose(new_bib, __LINE__, __FILE__);
-    // free the memory allocated for the mutex
+    free_biblioteca(biblioteca);
     mypthread_mutex_destroy(&mutex, __LINE__, __FILE__);
-    // close the socket
-    myclose(sfd, __LINE__, __FILE__);
-*/
+    safe_free(args);
+
+
     // _________END_________
 
 return 0;
 }
 
+// Functions
+
+void new_file_bib(linked_list_t *biblioteca, char *name_bib){
+    char *name_dir = "new_bibData";
+    mkdir(name_dir, 0777);
+    char *new_file_name = strdup(name_bib);
+    strcat(new_file_name, ".txt");
+    char *new_file_path = strdup(name_dir);
+    strcat(new_file_path, "/");
+    strcat(new_file_path, new_file_name);
+    FILE *new_file = myfopen(new_file_path, "w", __LINE__, __FILE__);
+    for(int i=0; i<biblioteca->size; i++){
+        Libro_t *libro = (Libro_t *)get_nth_element(biblioteca, i);
+        char *libro_record = calloc(1, sizeof(char)*BUFF_SIZE);
+        if(libro_record==NULL){
+            perror("Errore allocazione memoria");
+            exit(EXIT_FAILURE);
+        }
+        libro_to_record(libro, libro_record, MSG_QUERY);
+        fprintf(new_file, "%s\n", libro_record);
+    }
+    fflush(new_file);
+    myfclose(new_file, __LINE__, __FILE__);
+}
+
+void* worker_function(void *arg){
+    param_worker_t *args = (param_worker_t *)arg; 
+    linked_list_t *biblioteca = args->biblioteca; 
+    queue_t *coda = args->coda; 
+    pthread_mutex_t lock = args->lock; 
+    FILE *log = args->log; 
+    //fd_set clients = args->clients; 
+    int client; 
+    //printf("worker pronto\n");
+
+    while(1){ 
+        mypthread_mutex_lock(&lock, __LINE__, __FILE__);
+        if(!running && is_empty(coda)){
+            mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
+            break;
+        } 
+        if(is_empty(coda)){
+            mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
+            continue;
+        }
+
+        int *p = calloc(1, sizeof(int));
+        p = (int *)pop(coda); 
+        if(p==NULL){
+            mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
+            continue;
+        }
+        client = *p;
+        //free(p);
+        mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
+        if(client==-1){
+            continue;
+        }
+
+        msg_to_client_t *msg_to_client = calloc(1, sizeof(msg_to_client_t));
+        if(msg_to_client==NULL){
+            perror("Errore allocazione memoria msg_to_client");
+            exit(EXIT_FAILURE);
+        }
+        msg_to_client_t *msg = calloc(1, sizeof(msg_to_client_t)); 
+        if(msg==NULL){
+            perror("Errore allocazione memoria");
+            exit(EXIT_FAILURE);
+        }
+        char record_inviati[BUFF_SIZE]; // string for log
+        memset(record_inviati, 0, sizeof(record_inviati));
+
+        mypthread_mutex_lock(&lock, __LINE__, __FILE__);
+        if(read(client, msg, sizeof(msg_to_client_t)) == -1){
+            perror("read");
+            exit(EXIT_FAILURE);
+        }
+        mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
+
+        int num_record = 0; // counter for log stats
+        Libro_t *libro_richiesto = (Libro_t *)malloc(sizeof(Libro_t));
+        if(libro_richiesto==NULL){
+            perror("Errore allocazione memoria");
+            exit(EXIT_FAILURE);
+        }
+        inizializza_libro(libro_richiesto);
+        riempi_scheda_libro(libro_richiesto, msg->data);
+
+        for(int i=0; i<biblioteca->size; i++){
+            Libro_t *libro = (Libro_t *)get_nth_element(biblioteca, i);
+            if(verifica_libro_richiesto(libro, libro_richiesto)){ 
+                num_record++;
+                char *libro_record = calloc(1, sizeof(char)*BUFF_SIZE);
+                if(libro_record==NULL){
+                    perror("Errore allocazione memoria");
+                    exit(EXIT_FAILURE);
+                }
+                libro_to_record(libro, libro_record, msg->type);
+
+                // record string for log 
+                strcat(record_inviati, libro_record);
+                strcat(record_inviati, "\n");
+
+                int len_data = strlen(libro_record);
+                char data[len_data];
+                memset(data, 0, len_data);
+                strcpy(data, libro_record);
+
+                //invio messaggio al client
+                msg_to_client->type = MSG_RECORD;
+                msg_to_client->length = len_data;
+                strcpy(msg_to_client->data, data);
+
+                mypthread_mutex_lock(&lock, __LINE__, __FILE__);
+                if(write(client, msg_to_client, sizeof(msg_to_client_t)) == -1){
+                    perror("write MSG_RECORD");
+                    exit(EXIT_FAILURE);
+                }   
+                mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
+
+                if(strcmp(libro_record, "prestito non disponibile")==0){
+                    num_record--;
+                }
+            }
+        }
+        if(num_record==0){
+            strcpy(record_inviati, " ");
+            msg_to_client->type = MSG_NO;
+            msg_to_client->length = 0;
+            msg_to_client->data[0] = '\0';
+            mypthread_mutex_lock(&lock, __LINE__, __FILE__);
+            if(write(client, msg_to_client, sizeof(msg_to_client_t)) == -1){
+                perror("write MSG_NO");
+                exit(EXIT_FAILURE);
+            }
+            mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
+        }
+        if(num_record<0){
+            msg_to_client->type = MSG_ERROR;
+            msg_to_client->length = 0;
+            msg_to_client->data[0] = '\0';
+            mypthread_mutex_lock(&lock, __LINE__, __FILE__);
+            if(write(client, msg_to_client, sizeof(msg_to_client_t)) == -1){
+                perror("write MSG_ERROR");
+                exit(EXIT_FAILURE);
+            }
+            mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
+        }
+        close(client);
+        // riempi il file di log
+        mypthread_mutex_lock(&lock, __LINE__, __FILE__);
+        if(msg->type==MSG_LOAN){
+            fprintf(log, "LOAN %d\n\n%s\n_______________\n", num_record, record_inviati);
+        }
+        if(msg->type==MSG_QUERY){
+            fprintf(log, "QUERY %d\n\n%s\n______________\n", num_record, record_inviati);
+        }
+        fflush(log);
+        mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
+        free_libro(libro_richiesto);
+        safe_free(msg_to_client);
+        safe_free(msg);
+    }
+    return NULL;
+}
 
 void *signal_handler_function(void *arg){
     sigset_t *set = (sigset_t *)arg;
@@ -253,266 +417,41 @@ void *signal_handler_function(void *arg){
     return NULL;
 }
 
-void record_new_file_record(char *name_bib, linked_list_t *biblioteca){
-    // update the file bib.data with the new data
-    mkdir("new_bib_data", 0700);
-    char filename[256];
-    sprintf(filename, "new_bib_data/bib%c_new.txt", name_bib[0]);
-    FILE *new_bib = myfopen(filename, "w", __LINE__, __FILE__);
-    for(int i = 0; i < biblioteca->size; i++){
-        Libro_t *libro = (Libro_t *)get_nth_element(biblioteca, i);
-        char *record = calloc(1, sizeof(char)*BUFF_SIZE);
-        if(record==NULL){
-            perror("Errore allocazione memoria");
-            exit(EXIT_FAILURE);
-        }
-        libro_to_record(libro, record, MSG_QUERY);
-        fprintf(new_bib, "%s\n", record);
-        safe_free(record);
+int verifica_libro_richiesto(Libro_t *libro, Libro_t *libro_richiesto){
+    if(libro_richiesto->autore != NULL && (libro->autore == NULL || strstr(libro->autore, libro_richiesto->autore) == NULL)){
+        return 0;
     }
-    fflush(new_bib);
-    myfclose(new_bib, __LINE__, __FILE__);
-}
-
-void* worker_function(void *arg){
-    param_worker_t *args = (param_worker_t *)arg; // passo i parametri al thread
-    linked_list_t *biblioteca = args->biblioteca; // passo la biblioteca al thread
-    queue_t *coda = args->coda; // passo la coda al thread
-    pthread_mutex_t lock = args->lock; // passo il mutex al thread
-    FILE *log = args->log; // passo il file di log al thread
-    //fd_set clients = args->clients; // passo l'insieme dei file descriptors al thread
-    int client; // file descriptor del client
-    msg_client_t *msg_to_client = (msg_client_t *)malloc(sizeof(msg_client_t));
-    if(msg_to_client==NULL){
-        perror("Errore allocazione memoria");
-        exit(EXIT_FAILURE);
+    if(libro_richiesto->titolo != NULL && (libro->titolo == NULL || strstr(libro->titolo, libro_richiesto->titolo) == NULL)){
+        return 0;
     }
-    printf("worker pronto\n");
-    char record_inviati[BUFF_SIZE];
-
-    while(1){ 
-        mypthread_mutex_lock(&lock, __LINE__, __FILE__);
-        if(!running && is_empty(coda)){
-            mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
-            break;
-        } 
-        if(is_empty(coda)){
-            mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
-            continue;
-        }
-        int *p = pop(coda); // preleva un client dalla coda
-        if(p==NULL){
-            mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
-            continue;
-        }
-        client = *p;
-        //printf("client prelevato %d\n", client);
-        free(p);
-        mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
-        if(client==-1){ // se la coda è vuota
-            continue;
-        }
-        if(FD_ISSET(client, args->clients)){ // controlla se il client è pronto per la lettura
-            msg_client_t *msg = (msg_client_t *)malloc(sizeof(msg_client_t)); // allocazione memoria per i dati 
-            if(msg==NULL){
-                perror("Errore allocazione memoria");
-                exit(EXIT_FAILURE);
-            }
-            memset(msg, 0, sizeof(msg_client_t));
-            // leggo i dati dal client
-            if(read(client, msg, sizeof(msg_client_t)) == -1){
-                perror("read");
-                exit(EXIT_FAILURE);
-            }
-            //printf("Messaggio ricevuto: %c\n", msg->type);
-            //printf("Lunghezza messaggio: %d\n", msg->length);
-            //printf("Dati: %s\n", msg->data);
-
-            time_t now;
-            time(&now);
-            struct tm *tm = localtime(&now); // now è la data attuale in secondi dal 1 gennaio 1970 
-            char data_attuale[20];
-            strftime(data_attuale, 20, "%d-%m-%Y %H:%M:%S", tm);
-
-            int num_record = 0; // numero dei record inviati
-            Libro_t *libro_richiesto = (Libro_t *)malloc(sizeof(Libro_t));
-            if(libro_richiesto==NULL){
-                perror("Errore allocazione memoria");
-                exit(EXIT_FAILURE);
-            }
-            inizializza_libro(libro_richiesto);
-            riempi_scheda_libro(libro_richiesto, msg->data);
-
-            for(int i=0; i<biblioteca->size; i++){
-                Libro_t *libro = (Libro_t *)get_nth_element(biblioteca, i);
-                if(verifica_libro_richiesto(libro, libro_richiesto)){ // verifico se tutti i campi del libro richiesto sono presenti nel libro
-                    //printf("Libro trovato\n");
-                    num_record++;
-                    char *libro_record = calloc(1, sizeof(char)*BUFF_SIZE);
-                    if(libro_record==NULL){
-                        perror("Errore allocazione memoria");
-                        exit(EXIT_FAILURE);
-                    }
-                    libro_to_record(libro, libro_record, msg->type);
-                    // rimepio record_inviati con i record che verificano la richiesta
-                    strcat(record_inviati, libro_record);
-                    strcat(record_inviati, "\n");
-                    int len_data = strlen(libro_record);
-                    char data[len_data];
-                    memset(data, 0, len_data);
-                    strcat(data, libro_record);
-                    //invio messaggio al client
-                    msg_to_client->type = MSG_RECORD;
-                    msg_to_client->length = len_data;
-                    strcat(msg_to_client->data, data);
-                    //printf("Messaggio: %s\n", msg_to_client->data);
-                    if(write(client, msg_to_client, sizeof(msg_client_t)) == -1){
-                        perror("write SERVER");
-                        exit(EXIT_FAILURE);
-                    }
-                    if(strcmp(libro_record, "prestito non disponibile")==0){
-                        num_record--;
-                    }
-                }
-            }
-            if(num_record==0){
-                strcat(record_inviati, " ");
-                msg_to_client->type = MSG_NO;
-                msg_to_client->length = 0;
-                msg_to_client->data[0] = '\0';
-                if(write(client, msg_to_client, sizeof(msg_client_t)) == -1){
-                    perror("write");
-                    exit(EXIT_FAILURE);
-                }
-            }
-            if(num_record<0){
-                msg_to_client->type = MSG_ERROR;
-                msg_to_client->length = 0;
-                msg_to_client->data[0] = '\0';
-                if(write(client, msg_to_client, sizeof(msg_client_t)) == -1){
-                    perror("write");
-                    exit(EXIT_FAILURE);
-                }
-            }
-
-            // riempi il file di log
-            mypthread_mutex_lock(&lock, __LINE__, __FILE__);
-            if(msg->type==MSG_LOAN){
-                fprintf(log, "LOAN %d\n\n%s\n_______________\n", num_record, record_inviati);
-            }
-            if(msg->type==MSG_QUERY){
-                fprintf(log, "QUERY %d\n\n%s\n______________\n", num_record, record_inviati);
-            }
-            fflush(log);
-            mypthread_mutex_unlock(&lock, __LINE__, __FILE__);
-
-            //myfclose(log, __LINE__, __FILE__);
-            free_libro(libro_richiesto);
-            safe_free(msg);
-            FD_CLR(client, args->clients); // rimuovi il client dall'insieme dei file descriptors
-        }
-        memset(record_inviati, 0, sizeof(record_inviati));
+    if(libro_richiesto->editore != NULL && (libro->editore == NULL || strstr(libro->editore, libro_richiesto->editore) == NULL)){
+        return 0;
     }
-    return NULL;
-}
-
-int verifica_libro_richiesto(Libro_t *libro, Libro_t *libro_richiesto){ 
-    if(libro->prestito!=NULL){
-        struct tm tempo_prestito = {0};
-        strptime(libro->prestito, "%d-%m-%Y %H:%M:%S", &tempo_prestito);
-        time_t t = mktime(&tempo_prestito); // t è la data di prestito in secondi dal 1 gennaio 1970
-        time_t now;
-        time(&now); // now è la data attuale in secondi dal 1 gennaio 1970
-        if(difftime(t, now)>TEMPO_LIMITE_PRESTITO){ // 30 secondi di prestito 
-            safe_free(libro->prestito); // se il prestito è scaduto lo elimino
-        }
+    if(libro_richiesto->anno != 0 && libro->anno != libro_richiesto->anno){
+        return 0;
     }
-    if(libro_richiesto->autore!=NULL){
-        if(libro->autore==NULL){
-            return 0;
-        }
-        if(strstr(libro->autore, libro_richiesto->autore)==NULL){
-            return 0;
-        }
+    if(libro_richiesto->nota != NULL && (libro->nota == NULL || strstr(libro->nota, libro_richiesto->nota) == NULL)){
+        return 0;
     }
-    if(libro_richiesto->titolo!=NULL){
-        if(libro->titolo==NULL){
-            return 0;
-        }
-        if(strstr(libro->titolo, libro_richiesto->titolo)==NULL){
-            return 0;
-        }
+    if(libro_richiesto->collocazione != NULL && (libro->collocazione == NULL || strstr(libro->collocazione, libro_richiesto->collocazione) == NULL)){
+        return 0;
     }
-    if(libro_richiesto->editore!=NULL){
-        if(libro->editore==NULL){
-            return 0;
-        }
-        if(strstr(libro->editore, libro_richiesto->editore)==NULL){
-            return 0;
-        }
+    if(libro_richiesto->luogo_pubblicazione != NULL && (libro->luogo_pubblicazione == NULL || strstr(libro->luogo_pubblicazione, libro_richiesto->luogo_pubblicazione) == NULL)){
+        return 0;
     }
-    if(libro_richiesto->anno!=0){
-        if(libro->anno!=libro_richiesto->anno){
-            return 0;
-        }
+    if(libro_richiesto->descrizione_fisica != NULL && (libro->descrizione_fisica == NULL || strstr(libro->descrizione_fisica, libro_richiesto->descrizione_fisica) == NULL)){
+        return 0;
     }
-    if(libro_richiesto->nota!=NULL){
-        if(libro->nota==NULL){
-            return 0;
-        }
-        if(strstr(libro->nota, libro_richiesto->nota)==NULL){
-            return 0;
-        }
+    if(libro_richiesto->volume != NULL && (libro->volume == NULL || strstr(libro->volume, libro_richiesto->volume) == NULL)){
+        return 0;
     }
-    if(libro_richiesto->collocazione!=NULL){
-        if(libro->collocazione==NULL){
-            return 0;
-        }
-        if(strstr(libro->collocazione, libro_richiesto->collocazione)==NULL){
-            return 0;
-        }
-    }
-    if(libro_richiesto->luogo_pubblicazione!=NULL){
-        if(libro->luogo_pubblicazione==NULL){
-            return 0;
-        }
-        if(strstr(libro->luogo_pubblicazione, libro_richiesto->luogo_pubblicazione)==NULL){
-            return 0;
-        }
-    }
-    if(libro_richiesto->descrizione_fisica!=NULL){
-        if(libro->descrizione_fisica==NULL){
-            return 0;
-        }
-        if(strstr(libro->descrizione_fisica, libro_richiesto->descrizione_fisica)==NULL){
-            return 0;
-        }
-    }
-    if(libro_richiesto->volume!=NULL){
-        if(libro->volume==NULL){
-            return 0;
-        }
-        if(strstr(libro->volume, libro_richiesto->volume)==NULL){
-            return 0;
-        }
-    }
-    if(libro_richiesto->scaffale!=NULL){
-        if(libro->scaffale==NULL){
-            return 0;
-        }
-        if(strstr(libro->scaffale, libro_richiesto->scaffale)==NULL){
-            return 0;
-        }
+    if(libro_richiesto->scaffale != NULL && (libro->scaffale == NULL || strstr(libro->scaffale, libro_richiesto->scaffale) == NULL)){
+        return 0;
     }
     return 1;
 }
 
 char *libro_to_record(Libro_t *libro, char *libro_record, char type){
-    time_t now;
-    time(&now); // now è la data attuale in secondi dal 1 gennaio 1970
-    struct tm *tm = localtime(&now);
-    char data_attuale[20];
-    strftime(data_attuale, 20, "%d-%m-%Y %H:%M:%S", tm);
 
     if(libro->autore!=NULL){
         strcat(libro_record, "autore: ");
@@ -524,23 +463,24 @@ char *libro_to_record(Libro_t *libro, char *libro_record, char type){
     }
 
     if(type==MSG_LOAN){
-        if(libro->prestito!=NULL){
-            struct tm tempo_prestito = {0}; 
-            strptime(libro->prestito, "%d-%m-%Y %H:%M:%S", &tempo_prestito); // converto la data di prestito in una struttura tm
-            time_t t = mktime(&tempo_prestito); // t è la data di prestito in secondi dal 1 gennaio 1970
-            if(difftime(now, t)<TEMPO_LIMITE_PRESTITO){ // 30 secondi di prestito 
-                //resetto libro_record e ci scrivo prestito non disponibile
+        if(libro->prestito != NULL){ // if the book is not available
+            if(difftime(time(NULL), calcola_data_sec(libro->prestito)) > TEMPO_LIMITE_PRESTITO){
                 strcpy(libro_record, "prestito non disponibile");
                 return libro_record;
             }
         }
+        // if the book is available, the loan is registered
+        char data_attuale[20];
+        data_to_string(data_attuale);
         strcat(libro_record, "; prestito: ");
         strcat(libro_record, data_attuale);
         libro->prestito = strdup(data_attuale);
     }
-    else if(libro->prestito!=NULL){
-        strcat(libro_record, "; prestito: "); 
-        strcat(libro_record, libro->prestito);
+    if(type == MSG_QUERY){
+        if(libro->prestito!=NULL){
+            strcat(libro_record, "; prestito: ");
+            strcat(libro_record, libro->prestito);
+        }
     }
 
     if(libro->editore!=NULL){

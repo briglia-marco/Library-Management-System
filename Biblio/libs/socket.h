@@ -7,8 +7,6 @@ int mybind(int sockfd, const struct sockaddr *addr, socklen_t addrlen, int linea
 int mylisten(int sockfd, int backlog, int linea, char *file);
 int myaccept(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int linea, char *file);
 int myconnect(int sockfd, const struct sockaddr *addr, socklen_t addrlen, int linea, char *file);
-int mysend(int sockfd, const void *buf, size_t len, int flags, int linea, char *file);
-int myrecv(int sockfd, void *buf, size_t len, int flags, int linea, char *file);
 
 #endif  // SOCKET_H
 // Path: libs/socket.c

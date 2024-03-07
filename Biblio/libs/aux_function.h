@@ -14,19 +14,18 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/select.h>
-#include <sys/time.h>
 #include <sys/un.h>
 #include <pthread.h>
-#include <semaphore.h>
 #include <fcntl.h>
 #include <arpa/inet.h>
 #include <limits.h>
 #include <ctype.h>
 #include <signal.h>
 #include <netinet/in.h>
+#include <time.h>
+#include "linked_list.h"
+#include "queue.h"
 
-
-//struct
 #define BUFF_SIZE 1024
 #define IP "127.0.0.1"
 #define PORT 0
@@ -35,17 +34,8 @@
 #define MSG_RECORD 'R'
 #define MSG_NO 'N'
 #define MSG_ERROR 'E'
-
-typedef struct node{
-    void *data;
-    struct node *next;
-} node_t;
-
-typedef struct{
-    node_t *head;
-    pthread_mutex_t lock;
-    int size;
-} linked_list_t;
+#define TEMPO_LIMITE_PRESTITO 30
+#define CONFIG_FILE "bib.conf"
 
 typedef struct{
     char *autore;
@@ -66,24 +56,6 @@ typedef struct{
     char *valore;
 } richiesta_client_t;
 
-typedef struct{
-    node_t *head;
-    pthread_mutex_t mutex;
-} queue_t;
-
-typedef struct{
-    queue_t *coda;
-    linked_list_t *biblioteca;
-    pthread_mutex_t lock;
-    fd_set *clients;
-    FILE *log;
-} param_worker_t;
-
-typedef struct{
-    char type;
-    unsigned int length;
-    char data[BUFF_SIZE];
-} msg_client_t;
 
 // termina programma
 void termina(const char *s, int linea, char *file);
@@ -91,6 +63,7 @@ void termina_thread(const char *messaggio, int linea, char *file);
 
 // funzioni ausiliarie
 void free_libro(Libro_t *libro);
+void free_biblioteca(linked_list_t *lista);
 void riempi_scheda_libro(Libro_t *libro, char *line);
 void remove_spaces(char* str);
 void stampa_libro(Libro_t *libro);
@@ -106,6 +79,9 @@ void to_upper_case(char *str);
 void inizializza_richiesta(richiesta_client_t *richiesta);
 void add_richiesta(linked_list_t *lista_arg, char *token);
 void check_richiesta(char *token, char *string, int var_controllo, linked_list_t *lista_arg);
-int fill_arr_socket(FILE *fd, int arr_socket[], char arr_server[]);
+int fill_arr_socket(int arr_socket[], char arr_server[]);
+void check_prestito(Libro_t *libro);
+char *data_to_string(char buffer[]);
+int calcola_data_sec(char *data);
 
 #endif // AUX_FUNCTION_H

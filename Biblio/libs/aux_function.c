@@ -8,51 +8,6 @@
 #include "sig.h"
 #include "socket.h"
 
-// termina un processo con eventuale messaggio d'errore
-void termina(const char *messaggio, int linea, char *file){
-	if(errno==0){
-    fprintf(stderr, "== %d == %s Linea:%d, File: %s\n", getpid(), messaggio, linea, file);
-  }
-	else{
-    fprintf(stderr, "== %d == %s: %s\n", getpid(), messaggio, strerror(errno));
-  }
-  exit(1);
-}
-
-void termina_thread(const char *messaggio, int linea, char *file){
-  if(errno==0){
-    fprintf(stderr, "== %d == %s Linea:%d, File: %s\n", getpid(), messaggio, linea, file);
-  }
-  else{
-    fprintf(stderr, "== %d == %s: %s\n", getpid(), messaggio, strerror(errno));
-  }
-  pthread_exit(NULL);
-}
-
-// operazioni su processi
-pid_t myfork(int linea, char *file){
-  pid_t p = fork();
-  if(p<0){
-    perror("Errore fork");
-    fprintf(stderr, "== %d == Linea: %d, File: %s\n", getpid(), linea, file);
-    exit(1);
-  }
-  return p;
-}
-
-pid_t mywait(int *status, int linea, char *file){
-  pid_t p = wait(status);
-  if(p<0){
-    perror("Errore wait");
-    fprintf(stderr, "== %d == Linea: %d, File: %s\n", getpid(), linea, file);
-    exit(1);
-  }
-  return p;
-}
-
-
-//_____________________________________________________________________________________
-
 // Funzioni ausiliarie
 
 void free_libro(Libro_t *libro){
@@ -92,6 +47,23 @@ void free_libro(Libro_t *libro){
   safe_free(libro);
 }
 
+void free_biblioteca(linked_list_t *biblioteca){
+  mypthread_mutex_lock(&biblioteca->lock, __LINE__, __FILE__);
+  node_t *current = biblioteca->head;
+  node_t *next = NULL;
+  while(current != NULL){
+    free_libro((Libro_t *)current->data);
+    current = current->next;
+  }
+  while(current != NULL){
+    next = current->next;
+    safe_free(current);
+    current = next;
+  }
+  safe_free(current);
+  mypthread_mutex_unlock(&biblioteca->lock, __LINE__, __FILE__);
+  safe_free(biblioteca);
+}
 
 void riempi_scheda_libro(Libro_t *libro, char *line){
 
@@ -107,7 +79,7 @@ void riempi_scheda_libro(Libro_t *libro, char *line){
         libro->autore = (char *)malloc(strlen(valore) + 1);
         if(libro->autore == NULL){
           perror("Errore allocazione memoria");
-          exit(1);
+          exit(EXIT_FAILURE);
         }
         remove_spaces(valore);
         strcpy(libro->autore, valore);
@@ -116,7 +88,7 @@ void riempi_scheda_libro(Libro_t *libro, char *line){
         libro->autore = (char *)realloc(libro->autore, strlen(libro->autore) + strlen(valore) + 3);
         if(libro->autore == NULL){
           perror("Errore riallocazione memoria");
-          exit(1);
+          exit(EXIT_FAILURE);
         }
         strcat(libro->autore, "; autore: ");
         remove_spaces(valore);
@@ -128,7 +100,7 @@ void riempi_scheda_libro(Libro_t *libro, char *line){
       libro->titolo = (char *)malloc(strlen(valore) + 1);
       if(libro->titolo == NULL){
         perror("Errore allocazione memoria");
-        exit(1);
+        exit(EXIT_FAILURE);
       }
       strcpy(libro->titolo, valore);
     }
@@ -137,7 +109,7 @@ void riempi_scheda_libro(Libro_t *libro, char *line){
       libro->editore = (char *)malloc(strlen(valore) + 1);
       if(libro->editore == NULL){
         perror("Errore allocazione memoria");
-        exit(1);
+        exit(EXIT_FAILURE);
       }
       strcpy(libro->editore, valore);
     }
@@ -150,7 +122,7 @@ void riempi_scheda_libro(Libro_t *libro, char *line){
       libro->nota = (char *)malloc(strlen(valore) + 1);
       if(libro->nota == NULL){
         perror("Errore allocazione memoria");
-        exit(1);
+        exit(EXIT_FAILURE);
       }
       strcpy(libro->nota, valore);
     }
@@ -159,7 +131,7 @@ void riempi_scheda_libro(Libro_t *libro, char *line){
       libro->collocazione = (char *)malloc(strlen(valore) + 1);
       if(libro->collocazione == NULL){
         perror("Errore allocazione memoria");
-        exit(1);
+        exit(EXIT_FAILURE);
       }
       strcpy(libro->collocazione, valore);
     }
@@ -168,7 +140,7 @@ void riempi_scheda_libro(Libro_t *libro, char *line){
       libro->luogo_pubblicazione = (char *)malloc(strlen(valore) + 1);
       if(libro->luogo_pubblicazione == NULL){
         perror("Errore allocazione memoria");
-        exit(1);
+        exit(EXIT_FAILURE);
       }
       strcpy(libro->luogo_pubblicazione, valore);
     }
@@ -177,7 +149,7 @@ void riempi_scheda_libro(Libro_t *libro, char *line){
       libro->descrizione_fisica = (char *)malloc(strlen(valore) + 1);
       if(libro->descrizione_fisica == NULL){
         perror("Errore allocazione memoria");
-        exit(1);
+        exit(EXIT_FAILURE);
       }
       strcpy(libro->descrizione_fisica, valore);
     }
@@ -186,7 +158,7 @@ void riempi_scheda_libro(Libro_t *libro, char *line){
       libro->prestito = (char *)malloc(strlen(valore) + 1);
       if(libro->prestito == NULL){
         perror("Errore allocazione memoria");
-        exit(1);
+        exit(EXIT_FAILURE);
       }
       strcpy(libro->prestito, valore);
     }
@@ -195,7 +167,7 @@ void riempi_scheda_libro(Libro_t *libro, char *line){
       libro->volume = (char *)malloc(strlen(valore) + 1);
       if(libro->volume == NULL){
         perror("Errore allocazione memoria");
-        exit(1);
+        exit(EXIT_FAILURE);
       }
       strcpy(libro->volume, valore);
     }
@@ -204,7 +176,7 @@ void riempi_scheda_libro(Libro_t *libro, char *line){
       libro->scaffale = (char *)malloc(strlen(valore) + 1);
       if(libro->scaffale == NULL){
         perror("Errore allocazione memoria");
-        exit(1);
+        exit(EXIT_FAILURE);
       }
       strcpy(libro->scaffale, valore);
     }
@@ -214,6 +186,7 @@ void riempi_scheda_libro(Libro_t *libro, char *line){
     remove_spaces(etichetta);
     remove_spaces(valore);
   }
+  
 }
 
 void remove_spaces(char* str){
@@ -367,9 +340,6 @@ void inizializza_libro(Libro_t *libro){
   libro->scaffale = NULL;
 }
 
-
-// funzioni per il parsing dei comandi del client
-
 void inizializza_richiesta(richiesta_client_t *richiesta){
   richiesta->etichetta = NULL;
   richiesta->valore = NULL;
@@ -424,7 +394,6 @@ void remove_dashes(char *str){
   str[count] = '\0';
 }
 
-// upper case del primo carattere di una stringa
 void to_upper_case(char *str){
   if(str == NULL){
     return;
@@ -449,7 +418,8 @@ void add_richiesta(linked_list_t *lista_arg, char *token){
   add_node(lista_arg, richiesta);
 }
 
-int fill_arr_socket(FILE *fd, int arr_socket[], char arr_server[]){
+int fill_arr_socket(int arr_socket[], char arr_server[]){
+  FILE *fd = myfopen(CONFIG_FILE, "r", __LINE__, __FILE__);
   char *line = NULL;
   size_t len = 0;
   ssize_t read;
@@ -475,7 +445,34 @@ int fill_arr_socket(FILE *fd, int arr_socket[], char arr_server[]){
     }
     i++;
   }
+  myfclose(fd, __LINE__, __FILE__);
   return i;
 }
+
+int calcola_data_sec(char *data){
+  struct tm tm;
+  time_t t;
+  strptime(data, "%Y-%m-%d %H:%M:%S", &tm);
+  t = mktime(&tm);
+  return t;
+}
+
+char *data_to_string(char buffer[]){
+  time_t t = time(NULL);
+  struct tm *tm = localtime(&t);
+  strftime(buffer, 20, "%d-%m-%Y %H:%M:%S", tm);
+  return buffer;
+}
+
+void check_prestito(Libro_t *libro){
+  if(libro->prestito != NULL){
+    time_t t = calcola_data_sec(libro->prestito);
+    int diff = difftime(time(NULL), t);
+    if(diff > TEMPO_LIMITE_PRESTITO){ // se il tempo di prestito è scaduto
+      libro->prestito = NULL; // rimuovo la data di prestito
+    }
+  }
+}
+
 
 

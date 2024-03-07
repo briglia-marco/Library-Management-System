@@ -2,6 +2,17 @@
 #define LINKED_LIST_H
 #include "aux_function.h"
 
+typedef struct node{
+    void *data;
+    struct node *next;
+} node_t;
+
+typedef struct{
+    node_t *head;
+    pthread_mutex_t lock;
+    int size;
+} linked_list_t;
+
 void handle_null_error(void *, char *);
 void safe_free(void *);
 void initialize_list(linked_list_t *);

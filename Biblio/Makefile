@@ -25,7 +25,7 @@ $(LIBS)/%.o: $(LIBS)/%.c $(HEADER)
 	@$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f -r $(LIBS)/*.o *.o bibserver bibclient $(OBJ) *.log bib.conf new_bib_data
+	rm -f -r $(LIBS)/*.o *.o bibserver bibclient $(OBJ) *.log bib.conf new_bibData
 
 run : bibserver
 	./bibserver Massa bibData/bib1.txt 3
@@ -53,7 +53,7 @@ test : bibserver bibclient
 	./bibclient --autore="ciccio" --titolo="manuale" -p &
 	./bibclient --autore="melis" -p &
 	./bibclient --autore="ciccio" --titolo="manuale" -p &
-	./bibclient --autore="ciccio" --titolo="manuale" --anno="2010" &
+	./bibclient --autore="ciccio" --titolo="manuale" --anno="2010" -p &
 	sleep 1
 	./bibclient --autore="kernighan" -p &
 	./bibclient --autore="kernighan" --titolo="manuale" -p &
@@ -63,6 +63,41 @@ test : bibserver bibclient
 	sleep 1
 	./bibclient --autore="simenon" -p &
 	./bibclient --autore="dick" -p &
-	sleep 3
+	./bibclient --autore="aho" -p &
+	./bibclient --autore="stevens" --titolo="unix" -p &
+	./bibclient --autore="kernighan" --titolo="manuale" --anno="2010" &
+	sleep 1
+	./bibclient --autore="kernighan" -p &
+	./bibclient --autore="kernighan" --titolo="manuale" -p &
+	./bibclient --autore="aho" -p &
+	./bibclient --autore="stevens" --titolo="unix" -p &
+	./bibclient --autore="kernighan" --titolo="manuale" --anno="2010" &
+	sleep 1
+	./bibclient --autore="kernighan" -p &
+	./bibclient --autore="kernighan" --titolo="manuale" -p &
+	./bibclient --autore="aho" -p &
+	./bibclient --autore="stevens" --titolo="unix" -p &
+	./bibclient --autore="kernighan" --titolo="manuale" --anno="2010" &
+	sleep 1
+	./bibclient --autore="kernighan" -p &
+	./bibclient --autore="kernighan" --titolo="manuale" -p &
+	./bibclient --autore="aho" -p &
+	./bibclient --autore="stevens" --titolo="unix" -p &
+	./bibclient --autore="kernighan" --titolo="manuale" --anno="2010" &
+	sleep 1
+	./bibclient --autore="kernighan" -p &
+	./bibclient --autore="kernighan" --titolo="manuale" -p &
+	./bibclient --autore="aho" -p &
+	./bibclient --autore="stevens" --titolo="unix" -p &
+	./bibclient --autore="kernighan" --titolo="manuale" --anno="2010" &
+	sleep 2
 	pkill bibserver
-	pkill bibclient
+	sleep 5
+	chmod +x ./bibaccess.sh
+	./bibaccess.sh --query Firenze.log Pisa.log Massa.log Siena.log Lucca.log
+	sleep 1
+	./bibaccess.sh --loan Firenze.log Pisa.log Massa.log Siena.log Lucca.log
+
+kill: 
+	pkill bibserver
+

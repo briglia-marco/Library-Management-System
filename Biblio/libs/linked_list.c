@@ -87,7 +87,7 @@ void *get_nth_element(linked_list_t *list, int n){
 void free_list(linked_list_t *list){
   mypthread_mutex_lock(&list->lock, __LINE__, __FILE__);
   node_t *current = list->head;
-  while (current != NULL){
+  while(current != NULL){
     node_t *next = current->next;
     safe_free(current->data);
     safe_free(current);

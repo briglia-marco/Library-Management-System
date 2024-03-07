@@ -145,6 +145,9 @@ int main(int argc, char *argv[]){
     }
 
     // Chiudo i socket
+    for(int i=0; i<dim_arr; i++){
+        close(socket_arr[i]);
+    }
 
     // Libero la memoria
     free_list(lista_arg);

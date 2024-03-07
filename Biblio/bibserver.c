@@ -35,7 +35,6 @@ void new_file_bib(linked_list_t *biblioteca, char *name_bib);
 // Start main
 
 int main(int argc, char *argv[]){
-    printf("SERVER PARTITO\n");
 
     // _________Signal Management_________
     sigset_t set;
@@ -77,7 +76,6 @@ int main(int argc, char *argv[]){
     ssize_t nread;
 
     FILE *fd = myfopen(file_record, "r", __LINE__, __FILE__);
-    //myflock(fileno(fd), LOCK_EX, __LINE__, __FILE__);
     // Reading file record line by line and creating a linked list of books 
     while((nread = getline(&line, &len, fd)) != -1){
         if(nread == 1){
@@ -90,21 +88,15 @@ int main(int argc, char *argv[]){
             exit(EXIT_FAILURE);
         }
         inizializza_libro(libro);
-        printf("RIEMPIMENTO SCHEDA LIBRO\n");
         riempi_scheda_libro(libro, line); // fill the book record with the data from the file
-        printf("LIBRO RIEMPITO\n");
         if(is_in_biblioteca(biblioteca, libro)){ // check if the book is already in the library comparing all the fields of the book
             safe_free(libro);
-            printf("LIBRO LIBERATO\n");
         }
         else{
             check_prestito(libro); // check if loan has expired
-            printf("PRESTITO CONTROLLATO\n");
             add_node(biblioteca, libro); 
-            printf("NODO AGGIUNTO\n");
         }
     }
-    //myflock(fileno(fd), LOCK_UN, __LINE__, __FILE__);
     myfclose(fd, __LINE__, __FILE__);
     safe_free(line);
 

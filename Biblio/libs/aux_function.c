@@ -435,8 +435,8 @@ void check_prestito(Libro_t *libro){
   if(libro->prestito != NULL){
     time_t t = calcola_data_sec(libro->prestito);
     double diff = difftime(time(NULL), t);
-    if(diff > TEMPO_LIMITE_PRESTITO){ // se il tempo di prestito è scaduto
-      libro->prestito = NULL; // rimuovo la data di prestito
+    if(diff > TEMPO_LIMITE_PRESTITO){ 
+      libro->prestito = NULL; 
     }
   }
 }

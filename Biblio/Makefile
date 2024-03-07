@@ -91,11 +91,14 @@ test : bibserver bibclient
 	./bibclient --autore="aho" -p &
 	./bibclient --autore="stevens" --titolo="unix" -p &
 	./bibclient --autore="kernighan" --titolo="manuale" --anno="2010" &
+	sleep 1
+	pkill bibserver
 	sleep 5
 	chmod +x ./bibaccess.sh
 	./bibaccess.sh --query Firenze.log Pisa.log Massa.log Siena.log Lucca.log
 	sleep 1
 	./bibaccess.sh --loan Firenze.log Pisa.log Massa.log Siena.log Lucca.log
+
 
 kill:
 	pkill bibserver

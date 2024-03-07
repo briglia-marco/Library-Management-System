@@ -212,6 +212,9 @@ int main(int argc, char *argv[]){
         }
     }
 
+    // _________NEW FILE RECORD_________
+    new_file_bib(biblioteca, name_bib);
+
     // _________WAIT FOR THREADS_________
     for(int i=0; i<W; i++){
         mypthread_join(worker[i], NULL, __LINE__, __FILE__);
@@ -219,9 +222,6 @@ int main(int argc, char *argv[]){
 
     // _________LOG FILE_________
     myfclose(log, __LINE__, __FILE__);
-
-    // _________NEW FILE RECORD_________
-    new_file_bib(biblioteca, name_bib);
 
     // _________FREE MEMORY_________
     free_queue(coda);

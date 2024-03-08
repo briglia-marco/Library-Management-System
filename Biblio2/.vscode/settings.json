@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "select.h": "c",
+        "in.h": "c",
+        "_fd_def.h": "c"
+    }
+}
